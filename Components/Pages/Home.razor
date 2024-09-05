@@ -136,6 +136,12 @@
         CvFindWord = CvReplaceWith = ClFindWord = ClReplaceWith = string.Empty;
     }
 
+    private async Task Clear(bool resume, bool all = false)
+    {
+        var delLst = WordReplaces.Where(x => x.Resume == resume && (all || x.Selected));
+        Realm.RemoveRange(delLst);
+    }
+
     private WordReplaceDTO FindWordReplace(string wr, bool resume)
     {
         var wordReplace = wr.Split(">", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
