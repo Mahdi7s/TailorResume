@@ -1,0 +1,144 @@
+﻿@page "/"
+@using Realms
+@using TailorResume.DTOs
+@using TailorResume.Models
+
+@inject Realm Realm
+
+<MudTabs>
+    <MudTabPanel Icon="@Icons.Material.Filled.Fitbit" Text="Tailor">
+
+        <MudField Label="Resume" Variant="Variant.Outlined">
+            <MudTextField @bind-Value="OpenPosition" Label="OpenPosition" Variant="Variant.Outlined"></MudTextField>
+            <MudStack Row>
+                <MudTextField @bind-Value="CvFindWord" Label="Find Word" Variant="Variant.Outlined"></MudTextField>
+                <MudTextField @bind-Value="CvReplaceWith" Label="Replace With" Variant="Variant.Outlined"></MudTextField>
+                <MudButtonGroup>
+                    <MudButton OnClick="() => AddWord(true)">Add</MudButton>
+                    <MudButton>Clear Selected</MudButton>
+                    <MudButton>Clear All</MudButton>
+                </MudButtonGroup>
+            </MudStack>
+            <MudChipSet T="string" @bind-SelectedValues="SelectedCvWords" SelectionMode="SelectionMode.MultiSelection" Color="Color.Tertiary" Variant="Variant.Text">
+                @foreach (var wr in WordReplaces.Where(x => x.Resume))
+                {
+                    <MudChip Text="@wr.ToString()" Selected="wr.Selected" />
+                }
+            </MudChipSet>
+        </MudField>
+        <MudField Label="Cover Letter" Variant="Variant.Outlined">
+            <MudStack Row>
+            <MudTextField @bind-Value="ReplyTo" Label="Reply To" Variant="Variant.Outlined"></MudTextField>
+            <MudDatePicker @bind-Value="ClDate" />
+            </MudStack>
+            <MudStack Row>
+                <MudTextField @bind-Value="ClFindWord" Label="Find Word" Variant="Variant.Outlined"></MudTextField>
+                <MudTextField @bind-Value="ClReplaceWith" Label="Replace With" Variant="Variant.Outlined"></MudTextField>
+                <MudButtonGroup>
+                    <MudButton OnClick="() => AddWord(false)">Add</MudButton>
+                    <MudButton>Clear Selected</MudButton>
+                    <MudButton>Clear All</MudButton>
+                </MudButtonGroup>
+            </MudStack>
+            <MudChipSet T="string" @bind-SelectedValues="SelectedClWords" SelectionMode="SelectionMode.MultiSelection" Color="Color.Tertiary" Variant="Variant.Text">
+                @foreach (var wr in WordReplaces.Where(x => !x.Resume))
+                {
+                    <MudChip Text="@wr.ToString()" Selected="wr.Selected" />
+                }
+            </MudChipSet>
+        </MudField>
+    </MudTabPanel>
+
+    <MudTabPanel Icon="@Icons.Material.Filled.Build" Text="Settings">
+        <MudTextField @bind-Value="Settings.ApplicantName" Label="Applicant Name" Variant="Variant.Outlined" Margin="Margin.Dense"></MudTextField>
+        <MudTextField @bind-Value="Settings.CvFilePath" Label="CV File" Variant="Variant.Outlined" Margin="Margin.Dense"></MudTextField>
+        <MudTextField @bind-Value="Settings.ClFilePath" Label="Cover Letter File" Variant="Variant.Outlined" Margin="Margin.Dense"></MudTextField>
+        <MudTextField @bind-Value="Settings.OutputFolder" Label="Output Folder" Variant="Variant.Outlined" Margin="Margin.Dense"></MudTextField>
+        <MudCheckBox @bind-Value="Settings.ChangeCvFileNameBasedOnPosition" Label="Change Cv File Name Based On Position" />
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private IReadOnlyCollection<string> SelectedCvWords
+    {
+        get => WordReplaces.Where(x => x.Resume && x.Selected).Select(x => x.ToString()).ToList();
+        set
+        {
+            Realm.WriteAsync(() =>
+            {
+                var selectedList = value.Select(x => FindWordReplace(x, true));
+                foreach (var wr in WordReplaces.Where(x => x.Resume))
+                {
+                    wr.Selected = selectedList.Any(x => x.Id == wr.Id);
+                    Realm.Add(wr.ToObject(), true);
+                }
+            });
+        }
+    }
+    private IReadOnlyCollection<string> SelectedClWords
+    {
+        get => WordReplaces.Where(x => !x.Resume && x.Selected).Select(x => x.ToString()).ToList();
+        set
+        {
+            Realm.WriteAsync(() =>
+            {
+                var selectedList = value.Select(x => FindWordReplace(x, false));
+                foreach (var wr in WordReplaces.Where(x => !x.Resume))
+                {
+                    wr.Selected = selectedList.Any(x => x.Id == wr.Id);
+                    Realm.Add(wr.ToObject(), true);
+                }
+            });
+        }
+    }
+
+    private string? CvFindWord { get; set; }
+    private string? CvReplaceWith { get; set; }
+    private string? ClFindWord { get; set; }
+    private string? ClReplaceWith { get; set; }
+    private string? OpenPosition{ get; set; }
+    private string? ReplyTo{ get; set; }
+    private DateTime ClDate { get; set; } = DateTime.Now;
+
+    private List<WordReplaceDTO> WordReplaces { get; init; } = new List<WordReplaceDTO>();
+    private SettingsDTO? Settings { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        WordReplaces.AddRange(Realm.All<WordReplace>().ToList().Select(x => x.ToDto()));
+        Settings = Realm.All<Settings>().FirstOrDefault()?.ToDto();
+        if (Settings is null) // seed
+        {
+            await Realm.WriteAsync(() =>
+            {
+                var TailorResumeFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "TailorResume");
+                Settings = Realm.Add<Settings>(new Settings
+                    {
+                        Id = Guid.NewGuid(),
+                        CvFilePath = Path.Combine(TailorResumeFolder, "CV Template.docx"),
+                        ClFilePath = Path.Combine(TailorResumeFolder, "CL Template.docx"),
+                        OutputFolder = Path.Combine(TailorResumeFolder, "Output")
+                    }).ToDto();
+            });
+        }
+    }
+
+    private async Task AddWord(bool resume)
+    {
+        var word = resume ? CvFindWord : ClFindWord;
+        var replace = resume ? CvReplaceWith : ClReplaceWith;
+        await Realm.WriteAsync(() =>
+        {
+            var wr = Realm.Add(new WordReplace { Id = Guid.NewGuid(), Word = word, Replace = replace, Resume = resume, Selected = true });
+            WordReplaces.Add(wr.ToDto());
+        });
+
+        CvFindWord = CvReplaceWith = ClFindWord = ClReplaceWith = string.Empty;
+    }
+
+    private WordReplaceDTO FindWordReplace(string wr, bool resume)
+    {
+        var wordReplace = wr.Split(">", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return WordReplaces.FirstOrDefault(x => x.Resume == resume && x.Word == wordReplace[0] && x.Replace == wordReplace[1]);
+    }
+}
